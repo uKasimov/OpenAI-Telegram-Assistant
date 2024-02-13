@@ -1,0 +1,21 @@
+{
+  "name": "OpenAI-telegram-assistant",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Uktambek Kasimov",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "nodemon": "^3.0.3",
+    "openai": "^4.27.0",
+    "telegraf": "^4.15.3"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.2"
+  }
+}
