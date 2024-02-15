@@ -1,0 +1,14 @@
+version: '3.8'
+name: telegram-bot-openai-assistant
+services:
+  app:
+    image: node:16
+    restart: always
+    container_name: telegram-bot-openai-assistant
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      NODE_ENV: development
+    command: sh -c "yarn install && yarn start"
+
