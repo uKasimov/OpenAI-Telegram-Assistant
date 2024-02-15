@@ -3,7 +3,6 @@ const OpenAI = require('openai');
 require('dotenv').config()
 
 
-
 const translations = {
     'en': {
         welcome: 'Select a question or type your own:',
@@ -33,16 +32,17 @@ const translations = {
 
 const questions = {
     'en': [
-        ['Question 1 EN', 'Question 2 EN'],
-        ['Question 3 EN', 'Question 4 EN']
+        ['Analyze the latest trends in our industry.', 'Create a summary of recent news related to our field.'],
+        ['Suggest a marketing strategy for our new product.', 'Draft a content plan for the next month.']
     ],
     'ru': [
-        ['Вопрос 1 RU', 'Вопрос 2 RU'],
-        ['Вопрос 3 RU', 'Вопрос 4 RU']
+        ['Анализируйте последние тенденции в нашей отрасли.', 'Создайте сводку последних новостей, связанных с нашей сферой.'],
+        ['Предложите маркетинговую стратегию для нашего нового продукта.', 'Составьте план контента на следующий месяц.']
+
     ],
     'uz': [
-        ['Savol 1 UZ', 'Savol 2 UZ'],
-        ['Savol 3 UZ', 'Savol 4 UZ']
+        [`Bizning sohamizdagi so'nggi tendensiyalarni tahlil qiling.`, `Bizning sohamizga oid so'nggi yangiliklarning xulosasini yarating.`],
+        [`Yangi mahsulotimiz uchun marketing strategiyasini taklif qiling.`, `Keyingi oy uchun kontent rejasini tuzing.`]
     ]
 };
 
@@ -55,17 +55,31 @@ const openai = new OpenAI({
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
+async function simulateTyping(ctx, processingMessageId) {
+    const symbols = ['.', '..', '...'];
+    for (let i = 0; i < 5; i++) {
+        for (const symbol of symbols) {
+            try {
+                await ctx.telegram.editMessageText(ctx.chat.id, processingMessageId, null, symbol);
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Задержка в 1500 мс
+            } catch (error) {
+                console.error('Ошибка при редактировании сообщения:', error);
+                break;
+            }
+        }
+    }
+}
+
 // Function to send a message with a reply keyboard for common questions in private chats
 const userLanguages = {};
 
 bot.start((ctx) => {
     ctx.reply('Please select your language / Пожалуйста, выберите ваш язык / Iltimos, tilni tanlang:', Markup.inlineKeyboard([
-        [Markup.button.callback('English', 'language_en')],
-        [Markup.button.callback('Русский', 'language_ru')],
-        [Markup.button.callback('O‘zbek', 'language_uz')]
+        [Markup.button.callback('English 🇺🇸', 'language_en')],
+        [Markup.button.callback('Русский 🇷🇺', 'language_ru')],
+        [Markup.button.callback('O‘zbek 🇺🇿', 'language_uz')]
     ]));
 });
-
 bot.action(['language_en', 'language_ru', 'language_uz'], (ctx) => {
     const selectedLanguage = ctx.match.input.split('_')[1];
 
@@ -112,26 +126,27 @@ bot.on('text', async (ctx) => {
     // Ignore other text messages in group chats
 });
 
+bot.catch(e => {
+    setTimeout(console.log(`dont panic: ${e}`), 3000)
+});
 async function processQuestion(ctx, questionText) {
-    const userId = ctx.from.id; // Identifying the user
-    const languageCode = userLanguages[userId] || 'en'; // Default to English if not set
-    const userTranslations = translations[languageCode]; // Get translations for the user's language
+    const userId = ctx.from.id;
+    const languageCode = userLanguages[userId] || 'en';
+    const userTranslations = translations[languageCode];
 
     try {
         const assistantIdToUse = process.env.ASSISTANT_MODEL;
         const thread = await openai.beta.threads.create();
+        await openai.beta.threads.messages.create(thread.id, { role: 'user', content: questionText });
 
-        await openai.beta.threads.messages.create(thread.id, {
-            role: 'user',
-            content: questionText,
-        });
+        // Send a message with three dots to indicate processing
+        let processingMessage = await ctx.reply("..."); // Сообщение, которое будет редактироваться для эффекта моргания
+        await simulateTyping(ctx, processingMessage.message_id); // Вызов функции для имитации "печати"
 
-        let run = await openai.beta.threads.runs.create(thread.id, {
-            assistant_id: assistantIdToUse,
-        });
+        let run = await openai.beta.threads.runs.create(thread.id, { assistant_id: assistantIdToUse });
 
         while (run.status !== 'completed') {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setInterval(resolve, 3000));
             run = await openai.beta.threads.runs.retrieve(thread.id, run.id);
         }
 
@@ -139,16 +154,40 @@ async function processQuestion(ctx, questionText) {
         const assistantMessage = messages.data.find(m => m.role === 'assistant');
 
         if (assistantMessage && assistantMessage.content) {
-            await ctx.reply(assistantMessage.content[0].text.value);
-        } else {
-            await ctx.reply(userTranslations.responseNotFound);
+            const responseText = assistantMessage.content[0].text.value;
+            // Разделяем текст на абзацы
+            const paragraphs = responseText.split('\n\n');
+
+            let currentText = '';
+            for (let i = 0; i < paragraphs.length; i++) {
+                // Добавляем небольшую задержку перед добавлением каждого абзаца
+                await new Promise(resolve => setTimeout(resolve, 1500)); // Задержка перед редактированием
+
+                // Добавляем абзац к текущему тексту
+                currentText += paragraphs[i] + '\n\n'; // Добавляем два переноса строки для сохранения форматирования абзацев
+                // Редактируем сообщение, чтобы добавить новый абзац
+                await ctx.telegram.editMessageText(ctx.chat.id, processingMessage.message_id, null, currentText.trim());
+
+                // Ожидаем некоторое время перед добавлением следующего абзаца
+                await new Promise(resolve => setTimeout(resolve, 3000)); // Дополнительная задержка между абзацами
+            }
+        }
+        else {
+            // If no assistant message found, replace the processing message with a not found message
+            await ctx.telegram.editMessageText(ctx.chat.id, processingMessage.message_id, null, userTranslations.responseNotFound);
         }
     } catch (error) {
-        console.error(error);
-        await ctx.reply(`${userTranslations.errorMessage}${error.message}`);
+        if (error.code === 429) {
+            console.log(`Retrying after ${error.parameters.retry_after} seconds`);
+            setTimeout(() => {
+                processQuestion(ctx, questionText); // Повторный вызов функции после задержки
+            }, error.parameters.retry_after * 1000); // Преобразование секунд в миллисекунды
+        } else {
+            console.error(error);
+            await ctx.reply("An error occurred. Please try again later.");
+        }
     }
 }
-
 
 bot.hears([...Object.values(questions['en']).flat(), ...Object.values(questions['ru']).flat(), ...Object.values(questions['uz']).flat()], async (ctx) => {
     // Process the selected question with consideration to the user's language preference
