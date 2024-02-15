@@ -54,23 +54,6 @@ const openai = new OpenAI({
 
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-
-async function simulateTyping(ctx, processingMessageId) {
-    const symbols = ['.', '..', '...'];
-    for (let i = 0; i < 5; i++) {
-        for (const symbol of symbols) {
-            try {
-                await ctx.telegram.editMessageText(ctx.chat.id, processingMessageId, null, symbol);
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Задержка в 1500 мс
-            } catch (error) {
-                console.error('Ошибка при редактировании сообщения:', error);
-                break;
-            }
-        }
-    }
-}
-
-// Function to send a message with a reply keyboard for common questions in private chats
 const userLanguages = {};
 
 bot.start((ctx) => {
@@ -127,7 +110,7 @@ bot.on('text', async (ctx) => {
 });
 
 bot.catch(e => {
-    setTimeout(console.log(`dont panic: ${e}`), 3000)
+    console.log(`dont panic: ${e}`)
 });
 async function processQuestion(ctx, questionText) {
     const userId = ctx.from.id;
@@ -137,42 +120,27 @@ async function processQuestion(ctx, questionText) {
     try {
         const assistantIdToUse = process.env.ASSISTANT_MODEL;
         const thread = await openai.beta.threads.create();
-        await openai.beta.threads.messages.create(thread.id, { role: 'user', content: questionText });
-
-        // Send a message with three dots to indicate processing
-        let processingMessage = await ctx.reply("..."); // Сообщение, которое будет редактироваться для эффекта моргания
-        await simulateTyping(ctx, processingMessage.message_id); // Вызов функции для имитации "печати"
-
-        let run = await openai.beta.threads.runs.create(thread.id, { assistant_id: assistantIdToUse });
-
-        while (run.status !== 'completed') {
-            await new Promise(resolve => setInterval(resolve, 3000));
+        await openai.beta.threads.messages.create(thread.id, { role: 'user', content: questionText }, {maxRetries: 5});
+        ctx.sendChatAction('typing');
+        let run = await openai.beta.threads.runs.create(thread.id, { assistant_id: assistantIdToUse,  tools: [{"type": "code_interpreter"}, {"type": "retrieval"}] });
+        let processingMessage = await ctx.reply("...");
+        ctx.sendChatAction('typing');
+        while (run.status === "in_progress" || run.status === "queued") {
+            await new Promise(resolve => setInterval(resolve, 5000));
             run = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+
         }
 
         const messages = await openai.beta.threads.messages.list(thread.id);
-        const assistantMessage = messages.data.find(m => m.role === 'assistant');
+        const assistantMessage = messages.data
+            .filter((message) => message.run_id === run.id && message.role === "assistant")
+            .pop();
 
         if (assistantMessage && assistantMessage.content) {
             const responseText = assistantMessage.content[0].text.value;
-            // Разделяем текст на абзацы
-            const paragraphs = responseText.split('\n\n');
-
-            let currentText = '';
-            for (let i = 0; i < paragraphs.length; i++) {
-                // Добавляем небольшую задержку перед добавлением каждого абзаца
-                await new Promise(resolve => setTimeout(resolve, 1500)); // Задержка перед редактированием
-
-                // Добавляем абзац к текущему тексту
-                currentText += paragraphs[i] + '\n\n'; // Добавляем два переноса строки для сохранения форматирования абзацев
-                // Редактируем сообщение, чтобы добавить новый абзац
-                await ctx.telegram.editMessageText(ctx.chat.id, processingMessage.message_id, null, currentText.trim());
-
-                // Ожидаем некоторое время перед добавлением следующего абзаца
-                await new Promise(resolve => setTimeout(resolve, 3000)); // Дополнительная задержка между абзацами
-            }
-        }
-        else {
+            // Send the complete response in one message
+            await ctx.telegram.editMessageText(ctx.chat.id, processingMessage.message_id, null, responseText);
+        } else {
             // If no assistant message found, replace the processing message with a not found message
             await ctx.telegram.editMessageText(ctx.chat.id, processingMessage.message_id, null, userTranslations.responseNotFound);
         }
