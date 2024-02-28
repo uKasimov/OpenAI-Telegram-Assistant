@@ -7,24 +7,18 @@ const translations = {
     'en': {
         welcome: 'Select a question or type your own:',
         questions: [['Question 1', 'Question 2'], ['Question 3', 'Question 4']],
-        askPrompt: 'You can ask me anything by typing /ask followed by your question.',
-        askError: 'Please include a question after the /ask command.',
         responseNotFound: "I couldn't find a response. Please try again.",
         errorMessage: "An error occurred: "
     },
     'ru': {
         welcome: 'Выберите вопрос или напишите свой:',
         questions: [['Вопрос 1', 'Вопрос 2'], ['Вопрос 3', 'Вопрос 4']],
-        askPrompt: 'Вы можете задать мне любой вопрос, набрав /ask, за которым следует ваш вопрос.',
-        askError: 'Пожалуйста, включите вопрос после команды /ask.',
         responseNotFound: "Я не смог найти ответ. Пожалуйста, попробуйте еще раз.",
         errorMessage: "Произошла ошибка: "
     },
     'uz': {
         welcome: 'Bir savol tanlang yoki o\'zingiz yozing:',
         questions: [['Savol 1', 'Savol 2'], ['Savol 3', 'Savol 4']],
-        askPrompt: '/ask komandasidan keyin savolingizni yozib, menga istalgan savolni bera olasiz.',
-        askError: '/ask komandasi keyin savol kiritishingiz kerak.',
         responseNotFound: "Men javobni topa olmadim. Iltimos, yana urinib ko'ring.",
         errorMessage: "Xato yuz berdi: "
     }
@@ -88,25 +82,38 @@ bot.hears([...Object.values(questions.en).flat(), ...Object.values(questions.ru)
     await processQuestion(ctx, ctx.message.text)
 });
 
-bot.command('ask', async (ctx) => {
-    // Check if it's a group chat to apply the /ask command logic
-    if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
-        const messageText = ctx.message.text.split(' ').slice(1).join(' ');
-        if (!messageText) {
-            return ctx.reply('Please include a question after the /ask command.');
-        }
-        // Process the question from the /ask command
-        await processQuestion(ctx, messageText);
-    }
-});
+// bot.command('ask', async (ctx) => {
+//     // Check if it's a group chat to apply the /ask command logic
+//     if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
+//         const messageText = ctx.message.text.split(' ').slice(1).join(' ');
+//         if (!messageText) {
+//             return ctx.reply('Please include a question after the /ask command.');
+//         }
+//         // Process the question from the /ask command
+//         await processQuestion(ctx, messageText);
+//     }
+// });
 
 // Handle common questions selected from the reply keyboard or direct questions in private chats
 bot.on('text', async (ctx) => {
-    // In private chats, directly process any text input as a question
-    if (ctx.chat.type === 'private' && !ctx.message.text.startsWith('/')) {
-        await processQuestion(ctx, ctx.message.text);
+    const messageText = ctx.message.text;
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+    if ((ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') && messageText.includes(botUsername)) {
+        // Extract the message text following the bot's username
+        const commandStartIndex = messageText.indexOf(botUsername) + botUsername.length;
+        const questionText = messageText.slice(commandStartIndex).trim();
+
+        if (!questionText) {
+            // If there's no text following the bot's username, you might want to ask for a question
+            return ctx.reply('Please include a question after mentioning the bot.');
+        }
+
+        // Process the extracted question
+        await processQuestion(ctx, questionText);
+    } else if (ctx.chat.type === 'private' && !messageText.startsWith('/')) {
+        // Handle direct text inputs in private chats as before
+        await processQuestion(ctx, messageText);
     }
-    // Ignore other text messages in group chats
 });
 
 bot.catch(e => {
